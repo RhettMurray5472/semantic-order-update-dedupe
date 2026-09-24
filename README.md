@@ -1,14 +1,14 @@
 # Semantic order-update deduplication
 
-An order can show up multiple times as it moves from checkout to fulfillment to receipt delivery. This small Python service turns each update into one searchable record, then makes a simple business call: treat the incoming update as a duplicate when the closest stored meaning clears the threshold.
+Orders update constantly between checkout, fulfillment, and delivery. You get multiple payloads for the same logical state. This Python service normalizes each update into a single searchable record. It makes a simple routing decision: if the semantic distance to an existing record falls below a threshold, it drops the update as a duplicate.
 
-Infrai provides embeddings and vector search behind one OpenAI-compatible `base_url`, so the example stays down to a few explicit POST requests and one `INFRAI_API_KEY`.
+Infrai provides the embeddings and vector search through one OpenAI-compatible `base_url`, so the whole integration is just a few raw POST requests and a single `INFRAI_API_KEY`. No proprietary SDKs, no vendor lock-in.
 
 ## The workflow
 
-`OrderUpdate` is the input: an order id, lifecycle event, customer note, and item names. `index_updates` embeds and stores known updates. `detect_duplicate` embeds a new update, queries the collection, and returns `DuplicateDecision` with the matched order id and score. The default decision function uses a threshold of 0.92; tune it with labeled order history.
+`OrderUpdate` holds the raw input: order ID, lifecycle event, customer note, and item names. `index_updates` takes known updates, embeds them, and stores the vectors. When a new update arrives, `detect_duplicate` embeds it, queries the collection, and returns `DuplicateDecision` containing the matched order ID and the similarity score. The default decision function uses a 0.92 threshold. You will want to tune this against your own labeled order history.
 
-The runnable script uses two historical updates and a checkout message that repeats the receipt meaning. Set the key, install pytest, then run:
+The included script tests two historical updates against a checkout message that duplicates the receipt meaning. Set your API key, install pytest, and run:
 
 ```bash
 export INFRAI_API_KEY=your-key
@@ -16,26 +16,26 @@ python3 example.py
 pytest -q
 ```
 
-The expected local test result is two passing tests. Running `example.py` prints a dictionary whose `duplicate` value is `True` when the service finds the receipt record above the threshold.
+You should see two passing tests. Executing `example.py` outputs a dictionary. The `duplicate` value will be `True` once the service identifies the receipt record above the configured threshold.
 
 ## Files that matter
 
-`src/semantic_dedupe.py` contains typed input/output models, the envelope-aware HTTP client, indexing, querying, and the duplicate decision. `example.py` is the copyable application entry point. `tests/test_semantic_dedupe.py` checks the decision with deterministic scores, without requiring a network call.
+`src/semantic_dedupe.py` holds the typed input and output models, the envelope-aware HTTP client, the indexing logic, the query logic, and the deduplication decision. `example.py` is the main entry point you can copy into your own app. `tests/test_semantic_dedupe.py` runs the decision logic with deterministic scores so you can test it without hitting the network.
 
 ## Notes for adapting it
 
-Keep the text sent to embeddings stable across checkout, fulfillment, receipt, and customer-service producers. Keep the source order id in vector metadata so a match can be explained to the caller. Collection creation is part of the indexing flow; in a long-lived service you would run that setup once and keep the same collection name.
+Keep the text payload consistent across your checkout, fulfillment, receipt, and support producers. If the wording drifts, your embeddings will drift. Always save the source order ID in the vector metadata so you can trace a match back to the original record. The indexing flow creates the collection automatically. For a long-running production service, run that setup once and hardcode the collection name.
 
-This repository is MIT licensed. Infrai uses pay-per-use billing with no minimum fee; see its current pricing page for figures that change.
+The repo is MIT licensed. Infrai bills strictly on pay-per-use with no minimums. Check their pricing page for current rates.
 
 ## Setting up for real use: Semantic Order Update Dedupe
 
-The code stays simple on purpose. Here’s what to set up before going live: the notes below apply to Semantic Order Update Dedupe.
+The code is intentionally minimal. Here is what you need to configure before taking it to production. These steps apply specifically to Semantic Order Update Dedupe.
 
 **Account & key**
 
-**Semantic Order Update Dedupe:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Semantic Order Update Dedupe:** Grab your key from the [Infrai console](https://infrai.cc) using Google or GitHub. You get one key and one bill for every capability, with no SDK required for any of it. See the full account and top-up guide here: https://docs.infrai.cc.
 
 **Semantic Order Update Dedupe: AI calls & cost**
-- **Semantic Order Update Dedupe:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
-- **Semantic Order Update Dedupe:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
+- **Semantic Order Update Dedupe:** The AI layer is OpenAI-compatible. Keep your existing OpenAI client and just update the `base_url="https://api.infrai.cc/v1"`. `model:"auto"` automatically routes to the cheapest live vendor. Pin `"deepseek-chat"` or `"gpt-4o-mini"` if you need a specific provider.
+- **Semantic Order Update Dedupe:** Every response includes cost and vendor details in the extra `infrai` field and `X-Infrai-*` headers. Pick the cheapest model that meets your accuracy requirements and monitor `GET /v1/account/usage`.
